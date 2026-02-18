@@ -28,8 +28,8 @@ function Test-Dkim {
     )
 
     foreach ($selector in $Selectors) {
-        $host = "$selector._domainkey.$Domain"
-        $txtRecords = Resolve-DnsName -Name $host -Type TXT -ErrorAction SilentlyContinue
+        $dkimHost = "$selector._domainkey.$Domain"
+        $txtRecords = Resolve-DnsName -Name $dkimHost -Type TXT -ErrorAction SilentlyContinue
         $match = $txtRecords | Where-Object { $_.Strings -match 'v=DKIM1' -or $_.Strings -match 'k=rsa' } | Select-Object -First 1
         if ($match) {
             return [PSCustomObject]@{
@@ -42,17 +42,31 @@ function Test-Dkim {
     return $null
 }
 
+$validDomains = $Domains |
+    ForEach-Object { $_.Trim() } |
+    Where-Object {
+        $_ -and
+        $_ -notmatch '^\d+$' -and
+        $_ -match '^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    } |
+    Select-Object -Unique
+
 "DNS Mail Check gestartet: $(Get-Date)" | Out-File -FilePath $LogPath -Encoding UTF8
 "Geprüfte DKIM Selectors: $($DkimSelectors -join ', ')" | Out-File -FilePath $LogPath -Append -Encoding UTF8
 "" | Out-File -FilePath $LogPath -Append -Encoding UTF8
 
-foreach ($domain in $Domains) {
+if (-not $validDomains) {
+    "Keine gültigen Domains gefunden. Beispiel: example.com" | Tee-Object -FilePath $LogPath -Append
+    "Log gespeichert unter: $LogPath" | Write-Host
+    exit 1
+}
+
+foreach ($domain in $validDomains) {
     $spf = Test-Spf -Domain $domain
     $dmarc = Test-Dmarc -Domain $domain
     $dkim = Test-Dkim -Domain $domain -Selectors $DkimSelectors
 
     $line = "{0} | SPF: {1} | DKIM: {2} | DMARC: {3}" -f $domain, ($(if ($spf) { 'OK' } else { 'FEHLT' })), ($(if ($dkim) { "OK ($($dkim.Selector))" } else { 'FEHLT' })), ($(if ($dmarc) { 'OK' } else { 'FEHLT' }))
-
     $line | Tee-Object -FilePath $LogPath -Append
 }
 
