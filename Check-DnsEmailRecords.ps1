@@ -1,11 +1,22 @@
 param(
-    [Parameter(Mandatory = $true)]
     [string[]]$Domains,
+
+    [string]$DomainsFile,
 
     [string[]]$DkimSelectors = @('default', 'selector1', 'selector2', 'google', 'k1'),
 
-    [string]$LogPath = ".\\dns_mail_check_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    [string]$LogPath
 )
+
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $PSCommandPath }
+
+if (-not $DomainsFile) {
+    $DomainsFile = Join-Path $scriptDir 'domains.txt'
+}
+
+if (-not $LogPath) {
+    $LogPath = Join-Path $scriptDir ("dns_mail_check_{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+}
 
 function Test-Spf {
     param([string]$Domain)
@@ -42,6 +53,10 @@ function Test-Dkim {
     return $null
 }
 
+if (-not $Domains -and (Test-Path -LiteralPath $DomainsFile)) {
+    $Domains = Get-Content -LiteralPath $DomainsFile -ErrorAction SilentlyContinue
+}
+
 $validDomains = $Domains |
     ForEach-Object { $_.Trim() } |
     Where-Object {
@@ -53,10 +68,11 @@ $validDomains = $Domains |
 
 "DNS Mail Check gestartet: $(Get-Date)" | Out-File -FilePath $LogPath -Encoding UTF8
 "Geprüfte DKIM Selectors: $($DkimSelectors -join ', ')" | Out-File -FilePath $LogPath -Append -Encoding UTF8
+"Domains Datei: $DomainsFile" | Out-File -FilePath $LogPath -Append -Encoding UTF8
 "" | Out-File -FilePath $LogPath -Append -Encoding UTF8
 
 if (-not $validDomains) {
-    "Keine gültigen Domains gefunden. Beispiel: example.com" | Tee-Object -FilePath $LogPath -Append
+    "Keine gültigen Domains gefunden. Entweder -Domains angeben oder domains.txt im Skriptordner pflegen." | Tee-Object -FilePath $LogPath -Append
     "Log gespeichert unter: $LogPath" | Write-Host
     exit 1
 }
