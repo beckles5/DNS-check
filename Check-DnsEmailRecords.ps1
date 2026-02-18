@@ -86,7 +86,6 @@ $validDomains = $Domains |
 
 "DNS Mail Check gestartet: $(Get-Date)" | Out-File -FilePath $LogPath -Encoding UTF8
 "Geprüfte DKIM Selectors: $($DkimSelectors -join ', ')" | Out-File -FilePath $LogPath -Append -Encoding UTF8
-"Hinweis: DKIM hat keinen festen Standard-Selector. selector1/selector2 sind nur häufige Namen (z.B. Microsoft 365)." | Out-File -FilePath $LogPath -Append -Encoding UTF8
 "Domains Datei: $DomainsFile" | Out-File -FilePath $LogPath -Append -Encoding UTF8
 "" | Out-File -FilePath $LogPath -Append -Encoding UTF8
 
@@ -101,7 +100,7 @@ foreach ($domain in $validDomains) {
     $dmarc = Test-Dmarc -Domain $domain
     $dkim = Test-Dkim -Domain $domain -Selectors $DkimSelectors
 
-    $dkimStatus = if ($dkim) { "OK ($($dkim.Selector))" } else { 'FEHLT' }
+    $dkimStatus = if ($dkim) { 'OK' } else { 'FEHLT' }
 
     $dmarcStatus = if (-not $dmarc.Exists) {
         'FEHLT'
