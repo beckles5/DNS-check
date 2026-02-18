@@ -29,7 +29,25 @@ function Test-Dmarc {
     param([string]$Domain)
 
     $txtRecords = Resolve-DnsName -Name "_dmarc.$Domain" -Type TXT -ErrorAction SilentlyContinue
-    return ($txtRecords | Where-Object { $_.Strings -match 'v=DMARC1' } | Select-Object -First 1)
+    $dmarcRecord = $txtRecords | Where-Object { $_.Strings -match 'v=DMARC1' } | Select-Object -First 1
+
+    if (-not $dmarcRecord) {
+        return [PSCustomObject]@{
+            Exists = $false
+            Policy = $null
+            Record = $null
+        }
+    }
+
+    $recordText = ($dmarcRecord.Strings -join '')
+    $policyMatch = [regex]::Match($recordText, '(?i)(?:^|;)\s*p\s*=\s*([a-z]+)')
+    $policy = if ($policyMatch.Success) { $policyMatch.Groups[1].Value.ToLower() } else { $null }
+
+    return [PSCustomObject]@{
+        Exists = $true
+        Policy = $policy
+        Record = $recordText
+    }
 }
 
 function Test-Dkim {
@@ -68,6 +86,7 @@ $validDomains = $Domains |
 
 "DNS Mail Check gestartet: $(Get-Date)" | Out-File -FilePath $LogPath -Encoding UTF8
 "Geprüfte DKIM Selectors: $($DkimSelectors -join ', ')" | Out-File -FilePath $LogPath -Append -Encoding UTF8
+"Hinweis: DKIM hat keinen festen Standard-Selector. selector1/selector2 sind nur häufige Namen (z.B. Microsoft 365)." | Out-File -FilePath $LogPath -Append -Encoding UTF8
 "Domains Datei: $DomainsFile" | Out-File -FilePath $LogPath -Append -Encoding UTF8
 "" | Out-File -FilePath $LogPath -Append -Encoding UTF8
 
@@ -82,7 +101,25 @@ foreach ($domain in $validDomains) {
     $dmarc = Test-Dmarc -Domain $domain
     $dkim = Test-Dkim -Domain $domain -Selectors $DkimSelectors
 
-    $line = "{0} | SPF: {1} | DKIM: {2} | DMARC: {3}" -f $domain, ($(if ($spf) { 'OK' } else { 'FEHLT' })), ($(if ($dkim) { "OK ($($dkim.Selector))" } else { 'FEHLT' })), ($(if ($dmarc) { 'OK' } else { 'FEHLT' }))
+    $dkimStatus = if ($dkim) { "OK ($($dkim.Selector))" } else { 'FEHLT' }
+
+    $dmarcStatus = if (-not $dmarc.Exists) {
+        'FEHLT'
+    }
+    elseif (-not $dmarc.Policy) {
+        'FEHLT (kein p=)'
+    }
+    elseif ($dmarc.Policy -eq 'none') {
+        'NUR MONITORING (p=none)'
+    }
+    elseif ($dmarc.Policy -in @('quarantine', 'reject')) {
+        "OK (p=$($dmarc.Policy))"
+    }
+    else {
+        "UNBEKANNT (p=$($dmarc.Policy))"
+    }
+
+    $line = "{0} | SPF: {1} | DKIM: {2} | DMARC: {3}" -f $domain, ($(if ($spf) { 'OK' } else { 'FEHLT' })), $dkimStatus, $dmarcStatus
     $line | Tee-Object -FilePath $LogPath -Append
 }
 
